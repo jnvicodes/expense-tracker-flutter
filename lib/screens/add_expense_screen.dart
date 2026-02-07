@@ -22,7 +22,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? _paymentMethod;
   DateTime _selectedDate = DateTime.now();
 
-  // ── Category Icons & Colors ────────────────────────────────────────────────
+  // Category icons & colors (from Phase 3-B)
   final Map<String, Map<String, dynamic>> _expenseCategories = {
     'Food': {'icon': Icons.restaurant, 'color': Colors.red},
     'Transport': {'icon': Icons.directions_car, 'color': Colors.amber},
@@ -106,15 +106,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.initialItem != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final categories = _type == 'income' ? _incomeCategories : _expenseCategories;
 
     return Scaffold(
-      appBar: AppBar(title: Text(isEdit ? 'Edit' : 'Add ${_type == 'income' ? 'Income' : 'Expense'}')),
+      appBar: AppBar(
+        title: Text(
+          isEdit ? 'Edit Entry' : 'Add ${_type == 'income' ? 'Income' : 'Expense'}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        centerTitle: true,
+        elevation: 0,
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
         child: Form(
           key: _formKey,
           child: ListView(
+            physics: const BouncingScrollPhysics(),
             children: [
               SegmentedButton<String>(
                 segments: const [
@@ -126,13 +135,28 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   _type = v.first;
                   _category = null;
                 }),
+                style: SegmentedButton.styleFrom(
+                  backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+                  foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                  selectedBackgroundColor: isDark ? Colors.teal : Colors.teal[700],
+                  selectedForegroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
               TextFormField(
                 controller: _amountController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder()),
+                decoration: InputDecoration(
+                  labelText: 'Amount (₹)',
+                  prefixText: '₹ ',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  filled: true,
+                  fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                ),
+                style: const TextStyle(fontSize: 18),
                 validator: (v) {
                   if (v == null || v.isEmpty) return 'Required';
                   final val = double.tryParse(v);
@@ -142,10 +166,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Category dropdown with icons & colors
               DropdownButtonFormField<String>(
                 value: _category,
-                decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder()),
+                decoration: InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  filled: true,
+                  fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                ),
                 items: categories.entries.map((entry) {
                   final cat = entry.key;
                   final data = entry.value;
@@ -154,8 +183,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     child: Row(
                       children: [
                         Icon(data['icon'] as IconData, color: data['color'] as Color?, size: 24),
-                        const SizedBox(width: 12),
-                        Text(cat),
+                        const SizedBox(width: 16),
+                        Text(cat, style: const TextStyle(fontSize: 16)),
                       ],
                     ),
                   );
@@ -163,50 +192,84 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 onChanged: (v) => setState(() => _category = v),
                 validator: (v) => v == null ? 'Required' : null,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
               Row(
                 children: [
                   Expanded(
                     child: TextFormField(
                       controller: _newCategoryController,
-                      decoration: const InputDecoration(labelText: 'Add custom category', border: OutlineInputBorder()),
+                      decoration: InputDecoration(
+                        labelText: 'Add custom category',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                        filled: true,
+                        fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
+                  const SizedBox(width: 16),
+                  ElevatedButton.icon(
                     onPressed: _addCustomCategory,
-                    child: const Text('Add'),
+                    icon: const Icon(Icons.add, size: 20),
+                    label: const Text('Add'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
               DropdownButtonFormField<String>(
                 value: _paymentMethod,
-                decoration: const InputDecoration(labelText: 'Payment Method', border: OutlineInputBorder()),
+                decoration: InputDecoration(
+                  labelText: 'Payment Method',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  filled: true,
+                  fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                ),
                 items: _methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
                 onChanged: (v) => setState(() => _paymentMethod = v),
                 validator: (v) => v == null ? 'Required' : null,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
               ListTile(
-                title: Text('Date: ${DateFormat('dd/MM/yyyy').format(_selectedDate)}'),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: _selectDate,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  'Date: ${DateFormat('dd/MM/yyyy').format(_selectedDate)}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.calendar_today),
+                  onPressed: _selectDate,
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
               TextFormField(
                 controller: _noteController,
-                decoration: const InputDecoration(labelText: 'Note (optional)', border: OutlineInputBorder()),
-                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: 'Note (optional)',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  filled: true,
+                  fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  alignLabelWithHint: true,
+                ),
+                maxLines: 4,
+                minLines: 3,
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 48),
 
               ElevatedButton(
-                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(54), backgroundColor: Colors.black),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                  backgroundColor: isDark ? Colors.teal : Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 4,
+                ),
                 onPressed: () {
                   if (_formKey.currentState!.validate()) {
                     final item = {
@@ -223,9 +286,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       transactions.add(item);
                     }
                     Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Saved successfully')),
+                    );
                   }
                 },
-                child: Text(isEdit ? 'Update' : 'Save', style: const TextStyle(color: Colors.white)),
+                child: Text(isEdit ? 'Update' : 'Save', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
               ),
             ],
           ),

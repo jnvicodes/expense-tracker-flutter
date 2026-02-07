@@ -85,7 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Category Icons & Colors ────────────────────────────────────────────────
   static const Map<String, IconData> categoryIcons = {
-    // Expense
     'Food': Icons.restaurant,
     'Transport': Icons.directions_car,
     'Shopping': Icons.shopping_bag,
@@ -94,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
     'Health': Icons.local_hospital,
     'Education': Icons.school,
     'Others': Icons.more_horiz,
-    // Income
     'Salary': Icons.account_balance_wallet,
     'Freelance': Icons.work,
     'Gift': Icons.card_giftcard,
@@ -104,7 +102,6 @@ class _HomeScreenState extends State<HomeScreen> {
   };
 
   static const Map<String, Color> categoryColors = {
-    // Expense (warm/red tones in light, brighter in dark)
     'Food': Colors.red,
     'Transport': Colors.amber,
     'Shopping': Colors.purple,
@@ -113,7 +110,6 @@ class _HomeScreenState extends State<HomeScreen> {
     'Health': Colors.teal,
     'Education': Colors.blue,
     'Others': Colors.grey,
-    // Income (green tones)
     'Salary': Colors.green,
     'Freelance': Colors.lightGreen,
     'Gift': Colors.teal,
@@ -213,21 +209,41 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('FLUTTER_APPLICATION_1'),
+        title: const Text('FLUTTER_APPLICATION_1', style: TextStyle(fontWeight: FontWeight.w600)),
         centerTitle: true,
         elevation: 0,
         actions: [
           Switch(
             value: isDark,
             onChanged: widget.toggleTheme,
-            activeColor: Colors.teal,
+            activeColor: Colors.tealAccent,
           ),
           IconButton(
             icon: const Icon(Icons.delete_forever),
+            tooltip: 'Clear all transactions',
             onPressed: () {
-              setState(() => transactions.clear());
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('All cleared')),
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Clear All?'),
+                  content: const Text('This will delete all transactions permanently.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() => transactions.clear());
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('All transactions cleared')),
+                        );
+                      },
+                      child: const Text('Clear', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -238,65 +254,115 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Earned ₹${income.toStringAsFixed(0)}, Spent ₹${expense.toStringAsFixed(0)} → Saved ₹${net.toStringAsFixed(0)}',
+                      'Earned ₹${income.toStringAsFixed(0)}  •  Spent ₹${expense.toStringAsFixed(0)}',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: net >= 0 ? Colors.green : Colors.red,
+                        fontSize: 16,
+                        color: isDark ? Colors.white60 : Colors.black54,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            decoration: InputDecoration(
-                              labelText: 'Search (category, note, amount)',
-                              border: const OutlineInputBorder(),
-                              prefixIcon: const Icon(Icons.search),
-                              filled: true,
-                              fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
-                            ),
-                            onChanged: (v) => setState(() => searchQuery = v),
-                          ),
-                        ),
-                        if (searchQuery.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () => setState(() => searchQuery = ''),
-                          ),
-                      ],
+                    const SizedBox(height: 8),
+                    Text(
+                      'Saved ₹${net.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: net >= 0 ? Colors.green[400] : Colors.red[400],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    DropdownButton<String>(
-                      value: selectedMonth ?? 'All',
-                      isExpanded: true,
-                      items: [
-                        const DropdownMenuItem(value: 'All', child: Text('All Time')),
-                        ...List.generate(12, (i) {
-                          final d = DateTime.now().subtract(Duration(days: 30 * i));
-                          final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
-                          return DropdownMenuItem(
-                            value: key,
-                            child: Text(DateFormat('MMMM yyyy').format(d)),
-                          );
-                        }),
-                      ],
-                      onChanged: (v) => setState(() => selectedMonth = v),
+                    const SizedBox(height: 24),
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search category, note, amount...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () => setState(() => searchQuery = ''),
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                      ),
+                      onChanged: (v) => setState(() => searchQuery = v),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: isDark ? Colors.grey[700]! : Colors.grey[300]!),
+                      ),
+                      child: DropdownButton<String>(
+                        value: selectedMonth ?? 'All',
+                        isExpanded: true,
+                        underline: const SizedBox(),
+                        icon: const Icon(Icons.arrow_drop_down),
+                        items: [
+                          const DropdownMenuItem(value: 'All', child: Text('All Time')),
+                          ...List.generate(12, (i) {
+                            final d = DateTime.now().subtract(Duration(days: 30 * i));
+                            final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
+                            return DropdownMenuItem(
+                              value: key,
+                              child: Text(DateFormat('MMMM yyyy').format(d)),
+                            );
+                          }),
+                        ],
+                        onChanged: (v) => setState(() => selectedMonth = v),
+                      ),
                     ),
                   ],
                 ),
               ),
               Expanded(
                 child: filtered.isEmpty
-                    ? const Center(child: Text('No matching transactions'))
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.wallet_outlined,
+                              size: 96,
+                              color: isDark ? Colors.white24 : Colors.black26,
+                            ),
+                            const SizedBox(height: 32),
+                            Text(
+                              'No transactions yet',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white70 : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Tap the + button to add your first expense or income',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: isDark ? Colors.white54 : Colors.black54,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
                     : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
@@ -309,38 +375,64 @@ class _HomeScreenState extends State<HomeScreen> {
                           final categoryColor = categoryColors[category] ?? (isIncome ? Colors.green : Colors.red);
 
                           return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            elevation: isDark ? 3 : 2,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                               leading: CircleAvatar(
+                                radius: 30,
                                 backgroundColor: categoryColor.withOpacity(isDark ? 0.25 : 0.15),
                                 child: Icon(
                                   categoryIcon,
                                   color: categoryColor,
-                                  size: 20,
+                                  size: 24,
                                 ),
                               ),
                               title: Row(
                                 children: [
                                   Text(
                                     isIncome ? '+ ' : '- ',
-                                    style: TextStyle(color: categoryColor, fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                      color: categoryColor,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                  Text('₹${(item['amount'] as double).toStringAsFixed(0)} • $category'),
+                                  Expanded(
+                                    child: Text(
+                                      '₹${(item['amount'] as double).toStringAsFixed(0)} • $category',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
-                              subtitle: Row(
-                                children: [
-                                  Icon(
-                                    getPaymentIcon(paymentMethod),
-                                    size: 16,
-                                    color: isDark ? Colors.white70 : Colors.black54,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text('$paymentMethod • ${date != null ? DateFormat('dd/MM/yyyy').format(date) : 'Invalid date'}'),
-                                ],
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      getPaymentIcon(paymentMethod),
+                                      size: 18,
+                                      color: isDark ? Colors.white60 : Colors.black54,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '$paymentMethod • ${date != null ? DateFormat('dd/MM/yyyy').format(date) : 'Invalid date'}',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: isDark ? Colors.white60 : Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              trailing: item['note'] != null ? const Icon(Icons.note_alt) : null,
+                              trailing: item['note'] != null
+                                  ? Icon(Icons.note_alt, color: isDark ? Colors.white60 : Colors.black54)
+                                  : null,
                               onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (_) => AddExpenseScreen(initialItem: item, index: transactions.indexOf(item))),
@@ -357,8 +449,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: isDark ? Colors.teal : Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 8,
         onPressed: _openAddScreen,
-        child: const Icon(Icons.add, color: Colors.white),
+        child: const Icon(Icons.add, size: 32),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavigationBar(
@@ -372,6 +466,9 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         selectedItemColor: isDark ? Colors.teal : Colors.black,
         unselectedItemColor: Colors.grey,
+        selectedFontSize: 13,
+        unselectedFontSize: 13,
+        elevation: 12,
       ),
     );
   }
@@ -384,15 +481,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSummary() {
-    return const Center(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.pie_chart, size: 80, color: Colors.grey),
-          SizedBox(height: 24),
-          Text('Summary & Charts', style: TextStyle(fontSize: 24)),
-          SizedBox(height: 8),
-          Text('Coming soon...', style: TextStyle(color: Colors.grey)),
+          Icon(
+            Icons.pie_chart_outline,
+            size: 120,
+            color: isDark ? Colors.white24 : Colors.black26,
+          ),
+          const SizedBox(height: 40),
+          Text(
+            'Summary & Charts',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white70 : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Detailed insights and visualizations coming soon...',
+            style: TextStyle(
+              fontSize: 16,
+              color: isDark ? Colors.white54 : Colors.black54,
+            ),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
