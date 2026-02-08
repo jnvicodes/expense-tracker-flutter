@@ -198,6 +198,33 @@ class _HomeScreenState extends State<HomeScreen> {
     };
   }
 
+  // Moved this function BEFORE build so it can be called from inside build
+  void _deleteTransaction(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Transaction?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() => transactions.removeAt(index));
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Transaction deleted')),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -366,6 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
+                          final originalIndex = transactions.indexOf(item);
                           final date = _safeParseDate(item['date'] as String?);
                           final isIncome = (item['type'] as String? ?? 'expense') == 'income';
                           final category = item['category'] as String;
@@ -430,13 +458,46 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ],
                                 ),
                               ),
-                              trailing: item['note'] != null
-                                  ? Icon(Icons.note_alt, color: isDark ? Colors.white60 : Colors.black54)
-                                  : null,
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => AddExpenseScreen(initialItem: item, index: transactions.indexOf(item))),
-                              ).then((_) => setState(() {})),
+                              trailing: PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert),
+                                onSelected: (value) {
+                                  if (value == 'edit') {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => AddExpenseScreen(
+                                          initialItem: item,
+                                          index: originalIndex,
+                                        ),
+                                      ),
+                                    ).then((_) => setState(() {}));
+                                  } else if (value == 'delete') {
+                                    _deleteTransaction(originalIndex);
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  PopupMenuItem(
+                                    value: 'edit',
+                                    child: Row(
+                                      children: const [
+                                        Icon(Icons.edit),
+                                        SizedBox(width: 8),
+                                        Text('Edit'),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: const [
+                                        Icon(Icons.delete, color: Colors.red),
+                                        SizedBox(width: 8),
+                                        Text('Delete', style: TextStyle(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },
