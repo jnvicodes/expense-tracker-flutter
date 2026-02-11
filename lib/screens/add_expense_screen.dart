@@ -22,7 +22,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? _paymentMethod;
   DateTime _selectedDate = DateTime.now();
 
-  // Category icons & colors
+  // Category icons & colors (Phase 3-B)
   final Map<String, Map<String, dynamic>> _expenseCategories = {
     'Food': {'icon': Icons.restaurant, 'color': Colors.red},
     'Transport': {'icon': Icons.directions_car, 'color': Colors.amber},
@@ -77,7 +77,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       _selectedDate = _safeParseDate(item['date'] as String?) ?? DateTime.now();
       _noteController.text = item['note'] ?? '';
 
-      // Fix for dropdown assertion error: reset _category if not valid for current type
+      // Critical fix: reset _category if it's not valid for the current type (prevents assertion error)
       final categories = _type == 'income' ? _incomeCategories : _expenseCategories;
       if (_category != null && !categories.containsKey(_category)) {
         _category = null;
