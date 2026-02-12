@@ -95,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'Others': Icons.more_horiz,
     'Salary': Icons.account_balance_wallet,
     'Freelance': Icons.work,
-    'Gift': Icons.card_giftcard,
+    // 'Gift': Icons.card_giftcard,
     'Refund': Icons.replay,
     'Interest': Icons.trending_up,
     'Investment Return': Icons.trending_up,

@@ -37,7 +37,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final Map<String, Map<String, dynamic>> _incomeCategories = {
     'Salary': {'icon': Icons.account_balance_wallet, 'color': Colors.green},
     'Freelance': {'icon': Icons.work, 'color': Colors.lightGreen},
-    'Gift': {'icon': Icons.card_giftcard, 'color': Colors.teal},
+    // 'Gift': {'icon': Icons.card_giftcard, 'color': Colors.teal},
     'Refund': {'icon': Icons.replay, 'color': Colors.cyan},
     'Interest': {'icon': Icons.trending_up, 'color': Colors.blue},
     'Investment Return': {'icon': Icons.trending_up, 'color': Colors.green},
