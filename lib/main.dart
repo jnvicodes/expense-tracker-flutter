@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/screens/add_expense_screen.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 final List<Map<String, dynamic>> transactions = [];
 
@@ -95,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'Others': Icons.more_horiz,
     'Salary': Icons.account_balance_wallet,
     'Freelance': Icons.work,
-    // 'Gift': Icons.card_giftcard,
+    'Gift': Icons.card_giftcard,
     'Refund': Icons.replay,
     'Interest': Icons.trending_up,
     'Investment Return': Icons.trending_up,
@@ -120,16 +121,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static IconData getPaymentIcon(String? method) {
     switch (method) {
-      case 'UPI':
-        return Icons.phone_android;
-      case 'Cash':
-        return Icons.money;
-      case 'Card':
-        return Icons.credit_card;
-      case 'Bank Transfer':
-        return Icons.account_balance;
-      default:
-        return Icons.payment;
+      case 'UPI': return Icons.phone_android;
+      case 'Cash': return Icons.money;
+      case 'Card': return Icons.credit_card;
+      case 'Bank Transfer': return Icons.account_balance;
+      default: return Icons.payment;
     }
   }
 
@@ -198,29 +194,134 @@ class _HomeScreenState extends State<HomeScreen> {
     };
   }
 
-  // Moved this function BEFORE build so it can be called from inside build
-  void _deleteTransaction(int index) {
-    showDialog(
+  Map<String, double> _getExpenseCategoryBreakdown() {
+    final filtered = _getFilteredTransactions();
+    Map<String, double> categoryTotals = {};
+
+    for (var t in filtered) {
+      final type = t['type'] as String? ?? 'expense';
+      if (type == 'expense') {
+        final category = t['category'] as String;
+        final amount = t['amount'] as double;
+        categoryTotals.update(category, (value) => value + amount, ifAbsent: () => amount);
+      }
+    }
+    return categoryTotals;
+  }
+
+  // ==================== DRILL-DOWN ====================
+  void _showCategoryDetails(String category) {
+    final filtered = _getFilteredTransactions();
+    final itemsInCategory = filtered.where((t) =>
+        (t['type'] as String? ?? 'expense') == 'expense' && t['category'] == category).toList();
+
+    final total = itemsInCategory.fold<double>(0, (sum, item) => sum + (item['amount'] as double));
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Transaction?'),
-        content: const Text('This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Text(
+                '$category Details',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'Total: ₹${total.toStringAsFixed(0)}',
+                style: const TextStyle(fontSize: 18, color: Colors.red, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: itemsInCategory.isEmpty
+                    ? const Center(child: Text('No transactions found'))
+                    : ListView.builder(
+                        controller: scrollController,
+                        itemCount: itemsInCategory.length,
+                        itemBuilder: (context, index) {
+                          final item = itemsInCategory[index];
+                          final date = _safeParseDate(item['date'] as String?);
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: ListTile(
+                              leading: const Icon(Icons.arrow_outward, color: Colors.red),
+                              title: Text('₹${(item['amount'] as double).toStringAsFixed(0)}'),
+                              subtitle: Text(
+                                '${date != null ? DateFormat('dd/MM/yyyy').format(date) : ''} • ${item['paymentMethod']}',
+                              ),
+                              trailing: item['note'] != null
+                                  ? Text(item['note'], style: const TextStyle(fontSize: 13))
+                                  : null,
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              setState(() => transactions.removeAt(index));
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Transaction deleted')),
-              );
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  // Bar Chart Data (last 6 months)
+  List<Map<String, dynamic>> _getMonthlyTrendData() {
+    final now = DateTime.now();
+    final trend = <Map<String, dynamic>>[];
+
+    for (int i = 5; i >= 0; i--) {
+      final monthDate = DateTime(now.year, now.month - i, 1);
+      double income = 0, expense = 0;
+
+      for (var t in transactions) {
+        final date = _safeParseDate(t['date'] as String?);
+        if (date != null && date.year == monthDate.year && date.month == monthDate.month) {
+          final amt = t['amount'] as double;
+          if ((t['type'] as String? ?? 'expense') == 'income') income += amt;
+          else expense += amt;
+        }
+      }
+
+      trend.add({
+        'month': DateFormat('MMM').format(monthDate),
+        'income': income,
+        'expense': expense,
+      });
+    }
+    return trend;
+  }
+
+  void _deleteTransaction(int index) {
+    final deletedItem = transactions[index];
+
+    setState(() {
+      transactions.removeAt(index);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Transaction deleted'),
+        action: SnackBarAction(
+          label: 'UNDO',
+          onPressed: () {
+            setState(() {
+              transactions.insert(index, deletedItem);
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Transaction restored')),
+            );
+          },
+        ),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -393,7 +494,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
-                          final originalIndex = transactions.indexOf(item);
                           final date = _safeParseDate(item['date'] as String?);
                           final isIncome = (item['type'] as String? ?? 'expense') == 'income';
                           final category = item['category'] as String;
@@ -467,12 +567,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                       MaterialPageRoute(
                                         builder: (_) => AddExpenseScreen(
                                           initialItem: item,
-                                          index: originalIndex,
+                                          index: transactions.indexOf(item),
                                         ),
                                       ),
                                     ).then((_) => setState(() {}));
                                   } else if (value == 'delete') {
-                                    _deleteTransaction(originalIndex);
+                                    _deleteTransaction(transactions.indexOf(item));
                                   }
                                 },
                                 itemBuilder: (context) => [
@@ -543,32 +643,233 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSummary() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
+    final stats = _getMonthlyStats();
+    final income = stats['income'] as double;
+    final expense = stats['expense'] as double;
+    final net = stats['net'] as double;
+
+    final categoryBreakdown = _getExpenseCategoryBreakdown();
+
+    final totalExpense = categoryBreakdown.values.fold<double>(0, (sum, value) => sum + value);
+
+    final pieSections = categoryBreakdown.entries.map((entry) {
+      final category = entry.key;
+      final amount = entry.value;
+      final percentage = totalExpense > 0 ? (amount / totalExpense * 100) : 0.0;
+      final color = categoryColors[category] ?? Colors.grey;
+
+      return PieChartSectionData(
+        value: amount,
+        title: '${category}\n₹${amount.toStringAsFixed(0)}\n${percentage.toStringAsFixed(1)}%',
+        color: color,
+        radius: 80,
+        titleStyle: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      );
+    }).toList();
+
+    // Bar Chart Data (last 6 months)
+    final monthlyTrend = _getMonthlyTrendData();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.pie_chart_outline,
-            size: 120,
-            color: isDark ? Colors.white24 : Colors.black26,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildStatCard('Income', income, Colors.green, isDark),
+              _buildStatCard('Expense', expense, Colors.red, isDark),
+              _buildStatCard('Net', net, net >= 0 ? Colors.green : Colors.red, isDark),
+            ],
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 32),
+
           Text(
-            'Summary & Charts',
+            'Expense Breakdown by Category',
             style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w600,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
               color: isDark ? Colors.white70 : Colors.black87,
             ),
           ),
           const SizedBox(height: 16),
+
+          // Pie Chart with Drill-Down
+          SizedBox(
+            height: 300,
+            child: categoryBreakdown.isEmpty
+                ? Center(
+                    child: Text(
+                      'No expenses this period',
+                      style: TextStyle(fontSize: 16, color: isDark ? Colors.white54 : Colors.black54),
+                    ),
+                  )
+                : PieChart(
+                    PieChartData(
+                      sections: pieSections,
+                      centerSpaceRadius: 50,
+                      sectionsSpace: 2,
+                      pieTouchData: PieTouchData(
+                        touchCallback: (FlTouchEvent event, pieTouchResponse) {
+                          if (event is FlTapUpEvent && pieTouchResponse?.touchedSection != null) {
+                            final touchedIndex = pieTouchResponse!.touchedSection!.touchedSectionIndex;
+                            if (touchedIndex >= 0) {
+                              final category = categoryBreakdown.keys.elementAt(touchedIndex);
+                              _showCategoryDetails(category);
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 32),
+
+          // Legend
           Text(
-            'Detailed insights and visualizations coming soon...',
+            'Legend',
             style: TextStyle(
               fontSize: 16,
-              color: isDark ? Colors.white54 : Colors.black54,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white70 : Colors.black87,
             ),
-            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+
+          ...categoryBreakdown.entries.map((entry) {
+            final category = entry.key;
+            final amount = entry.value;
+            final color = categoryColors[category] ?? Colors.grey;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '$category — ₹${amount.toStringAsFixed(0)}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+
+          const SizedBox(height: 40),
+
+          // Bar Chart
+          Text(
+            'Monthly Trend (Last 6 Months)',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white70 : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          SizedBox(
+            height: 320,
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                maxY: monthlyTrend.isEmpty ? 100 : monthlyTrend.map((e) => (e['income'] as double) + (e['expense'] as double)).reduce((a, b) => a > b ? a : b) * 1.1,
+                barTouchData: BarTouchData(enabled: true),
+                titlesData: FlTitlesData(
+                  show: true,
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (value, meta) {
+                        if (value.toInt() >= 0 && value.toInt() < monthlyTrend.length) {
+                          return Text(
+                            monthlyTrend[value.toInt()]['month'],
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                          );
+                        }
+                        return const Text('');
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                borderData: FlBorderData(show: false),
+                barGroups: monthlyTrend.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final data = entry.value;
+                  return BarChartGroupData(
+                    x: index,
+                    barRods: [
+                      BarChartRodData(
+                        toY: data['income'] as double,
+                        color: Colors.green,
+                        width: 16,
+                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
+                      ),
+                      BarChartRodData(
+                        toY: data['expense'] as double,
+                        color: Colors.red,
+                        width: 16,
+                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String title, double value, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.grey[800] : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: isDark ? Colors.black26 : Colors.grey.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(title, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.black54)),
+          const SizedBox(height: 8),
+          Text(
+            '₹${value.toStringAsFixed(0)}',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
         ],
       ),
