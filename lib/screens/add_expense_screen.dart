@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/main.dart';
 import 'package:intl/intl.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final Map<String, dynamic>? initialItem;
-  final int? index;
-  const AddExpenseScreen({super.key, this.initialItem, this.index});
+  const AddExpenseScreen({super.key, this.initialItem});
 
   @override
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
@@ -285,12 +283,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       'date': _selectedDate.toIso8601String().substring(0, 10),
                       'note': _noteController.text.isEmpty ? null : _noteController.text,
                     };
-                    if (widget.index != null) {
-                      transactions[widget.index!] = item;
-                    } else {
-                      transactions.add(item);
+                    if (widget.initialItem != null) {
+                      item['id'] = widget.initialItem!['id']; // keep ID for update
                     }
-                    Navigator.pop(context);
+                    Navigator.pop(context, item); // return to HomeScreen
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Saved successfully')),
                     );

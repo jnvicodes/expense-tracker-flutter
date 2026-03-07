@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_application_1/screens/add_expense_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart';
 
-final List<Map<String, dynamic>> transactions = [];
-
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const FlutterApplication1());
 }
 
@@ -65,11 +71,118 @@ class _FlutterApplication1State extends State<FlutterApplication1> {
         ),
         iconTheme: const IconThemeData(color: Colors.white70),
       ),
-      home: HomeScreen(toggleTheme: _toggleTheme),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          if (snapshot.hasData) {
+            return HomeScreen(toggleTheme: _toggleTheme);
+          }
+          return const AuthScreen();
+        },
+      ),
     );
   }
 }
 
+// ── Login / Signup Screen ────────────────────────────────────────────────────
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({super.key});
+
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLogin = true;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _errorMessage = 'Please fill all fields');
+      return;
+    }
+
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    try {
+      if (_isLogin) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+      } else {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() => _errorMessage = e.message ?? 'Authentication failed');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      appBar: AppBar(title: Text(_isLogin ? 'Login' : 'Sign Up')),
+      body: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextField(
+              controller: _emailController,
+              decoration: InputDecoration(
+                labelText: 'Email',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _passwordController,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+              ),
+              obscureText: true,
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 16),
+              Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+            ],
+            const SizedBox(height: 24),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: _submit,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                    child: Text(_isLogin ? 'Login' : 'Sign Up'),
+                  ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => setState(() => _isLogin = !_isLogin),
+              child: Text(_isLogin ? 'Create account' : 'Already have account? Login'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── HomeScreen ───────────────────────────────────────────────────────────────
 class HomeScreen extends StatefulWidget {
   final void Function(bool isDark) toggleTheme;
 
@@ -83,6 +196,135 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   String searchQuery = '';
   String? selectedMonth;
+
+  List<Map<String, dynamic>> transactions = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTransactions();
+  }
+
+  Future<void> _loadTransactions() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() {
+        transactions = [];
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions')
+          .orderBy('date', descending: true)
+          .get();
+
+      setState(() {
+        transactions = snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+
+          // Safe normalization
+          data['type'] = data['type'] is String ? data['type'] : 'expense';
+          data['category'] = data['category'] is String ? data['category'] : 'Others';
+          data['paymentMethod'] = data['paymentMethod'] is String ? data['paymentMethod'] : 'Unknown';
+          data['amount'] = (data['amount'] is num) ? (data['amount'] as num).toDouble() : 0.0;
+          // date stays as-is (string or Timestamp)
+
+          return data;
+        }).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load expenses: $e')),
+      );
+    }
+  }
+
+  Future<void> _saveTransaction(Map<String, dynamic> transaction) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions')
+          .add(transaction);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save expense: $e')),
+      );
+    }
+  }
+
+  Future<void> _updateTransaction(String id, Map<String, dynamic> transaction) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions')
+          .doc(id)
+          .update(transaction);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update expense: $e')),
+      );
+    }
+  }
+
+  Future<void> _deleteTransaction(String id) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions')
+          .doc(id)
+          .delete();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete expense: $e')),
+      );
+    }
+  }
+
+  Future<void> _clearAllTransactions() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions')
+          .get();
+
+      for (var doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to clear expenses: $e')),
+      );
+    }
+  }
 
   // ── Category Icons & Colors ────────────────────────────────────────────────
   static const Map<String, IconData> categoryIcons = {
@@ -129,34 +371,41 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  DateTime? _safeParseDate(String? dateStr) {
-    if (dateStr == null || dateStr.isEmpty) return null;
-    try {
-      return DateTime.parse(dateStr);
-    } catch (_) {}
-    try {
-      final parts = dateStr.split('/');
-      if (parts.length == 3) {
-        final day = int.tryParse(parts[0]);
-        final month = int.tryParse(parts[1]);
-        final year = int.tryParse(parts[2]);
-        if (day != null && month != null && year != null) {
-          return DateTime(year, month, day);
+  DateTime? _safeParseDate(dynamic dateValue) {
+    if (dateValue == null) return null;
+
+    if (dateValue is Timestamp) {
+      return dateValue.toDate();
+    }
+
+    if (dateValue is String) {
+      try {
+        return DateTime.parse(dateValue);
+      } catch (_) {}
+      try {
+        final parts = dateValue.split('/');
+        if (parts.length == 3) {
+          final day = int.tryParse(parts[0]);
+          final month = int.tryParse(parts[1]);
+          final year = int.tryParse(parts[2]);
+          if (day != null && month != null && year != null) {
+            return DateTime(year, month, day);
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
     return null;
   }
 
   List<Map<String, dynamic>> _getFilteredTransactions() {
     return transactions.where((t) {
-      final date = _safeParseDate(t['date'] as String?);
+      final date = _safeParseDate(t['date']);
       if (date == null) return false;
 
       final matchesSearch = searchQuery.isEmpty ||
-          (t['category'] as String).toLowerCase().contains(searchQuery.toLowerCase()) ||
+          (t['category'] as String? ?? '').toLowerCase().contains(searchQuery.toLowerCase()) ||
           (t['note'] as String? ?? '').toLowerCase().contains(searchQuery.toLowerCase()) ||
-          (t['amount'] as double).toStringAsFixed(0).contains(searchQuery);
+          (t['amount'] as num? ?? 0).toStringAsFixed(0).contains(searchQuery);
 
       if (selectedMonth == null || selectedMonth == 'All') return matchesSearch;
 
@@ -164,8 +413,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return matchesSearch && yearMonth == selectedMonth;
     }).toList()
       ..sort((a, b) {
-        final da = _safeParseDate(a['date'] as String?);
-        final db = _safeParseDate(b['date'] as String?);
+        final da = _safeParseDate(a['date']);
+        final db = _safeParseDate(b['date']);
         if (da == null || db == null) return 0;
         return db.compareTo(da);
       });
@@ -178,7 +427,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Map<String, double> methodBreakdown = {};
 
     for (var t in filtered) {
-      final amt = t['amount'] as double;
+      final amt = (t['amount'] as num?)?.toDouble() ?? 0.0;
       final type = t['type'] as String? ?? 'expense';
       final method = t['paymentMethod'] as String? ?? 'Unknown';
       if (type == 'income') income += amt;
@@ -201,28 +450,25 @@ class _HomeScreenState extends State<HomeScreen> {
     for (var t in filtered) {
       final type = t['type'] as String? ?? 'expense';
       if (type == 'expense') {
-        final category = t['category'] as String;
-        final amount = t['amount'] as double;
+        final category = t['category'] as String? ?? 'Others';
+        final amount = (t['amount'] as num?)?.toDouble() ?? 0.0;
         categoryTotals.update(category, (value) => value + amount, ifAbsent: () => amount);
       }
     }
     return categoryTotals;
   }
 
-  // ==================== DRILL-DOWN ====================
   void _showCategoryDetails(String category) {
     final filtered = _getFilteredTransactions();
     final itemsInCategory = filtered.where((t) =>
-        (t['type'] as String? ?? 'expense') == 'expense' && t['category'] == category).toList();
+        (t['type'] as String? ?? 'expense') == 'expense' && (t['category'] as String? ?? '') == category).toList();
 
-    final total = itemsInCategory.fold<double>(0, (sum, item) => sum + (item['amount'] as double));
+    final total = itemsInCategory.fold<double>(0, (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0));
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.75,
         minChildSize: 0.5,
@@ -232,14 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              Text(
-                '$category Details',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                'Total: ₹${total.toStringAsFixed(0)}',
-                style: const TextStyle(fontSize: 18, color: Colors.red, fontWeight: FontWeight.w600),
-              ),
+              Text('$category Details', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text('Total: ₹${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, color: Colors.red, fontWeight: FontWeight.w600)),
               const SizedBox(height: 16),
               Expanded(
                 child: itemsInCategory.isEmpty
@@ -249,18 +489,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemCount: itemsInCategory.length,
                         itemBuilder: (context, index) {
                           final item = itemsInCategory[index];
-                          final date = _safeParseDate(item['date'] as String?);
+                          final date = _safeParseDate(item['date']);
                           return Card(
                             margin: const EdgeInsets.symmetric(vertical: 6),
                             child: ListTile(
                               leading: const Icon(Icons.arrow_outward, color: Colors.red),
-                              title: Text('₹${(item['amount'] as double).toStringAsFixed(0)}'),
-                              subtitle: Text(
-                                '${date != null ? DateFormat('dd/MM/yyyy').format(date) : ''} • ${item['paymentMethod']}',
-                              ),
-                              trailing: item['note'] != null
-                                  ? Text(item['note'], style: const TextStyle(fontSize: 13))
-                                  : null,
+                              title: Text('₹${(item['amount'] as num?)?.toDouble().toStringAsFixed(0) ?? '0'}'),
+                              subtitle: Text('${date != null ? DateFormat('dd/MM/yyyy').format(date) : 'Invalid date'} • ${item['paymentMethod'] ?? 'Unknown'}'),
+                              trailing: item['note'] != null ? Text(item['note'] as String, style: const TextStyle(fontSize: 13)) : null,
                             ),
                           );
                         },
@@ -273,7 +509,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Bar Chart Data (last 6 months)
   List<Map<String, dynamic>> _getMonthlyTrendData() {
     final now = DateTime.now();
     final trend = <Map<String, dynamic>>[];
@@ -283,9 +518,9 @@ class _HomeScreenState extends State<HomeScreen> {
       double income = 0, expense = 0;
 
       for (var t in transactions) {
-        final date = _safeParseDate(t['date'] as String?);
+        final date = _safeParseDate(t['date']);
         if (date != null && date.year == monthDate.year && date.month == monthDate.month) {
-          final amt = t['amount'] as double;
+          final amt = (t['amount'] as num?)?.toDouble() ?? 0.0;
           if ((t['type'] as String? ?? 'expense') == 'income') income += amt;
           else expense += amt;
         }
@@ -300,35 +535,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return trend;
   }
 
-  void _deleteTransaction(int index) {
-    final deletedItem = transactions[index];
-
-    setState(() {
-      transactions.removeAt(index);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Transaction deleted'),
-        action: SnackBarAction(
-          label: 'UNDO',
-          onPressed: () {
-            setState(() {
-              transactions.insert(index, deletedItem);
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Transaction restored')),
-            );
-          },
-        ),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading) {
+      return Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final currentStats = _getMonthlyStats();
     final income = currentStats['income'] as double;
     final expense = currentStats['expense'] as double;
@@ -347,6 +561,13 @@ class _HomeScreenState extends State<HomeScreen> {
             activeColor: Colors.tealAccent,
           ),
           IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.delete_forever),
             tooltip: 'Clear all transactions',
             onPressed: () {
@@ -354,15 +575,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 context: context,
                 builder: (context) => AlertDialog(
                   title: const Text('Clear All?'),
-                  content: const Text('This will delete all transactions permanently.'),
+                  content: const Text('This will delete all your transactions permanently.'),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
                       child: const Text('Cancel'),
                     ),
                     TextButton(
-                      onPressed: () {
-                        setState(() => transactions.clear());
+                      onPressed: () async {
+                        await _clearAllTransactions();
+                        await _loadTransactions();
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('All transactions cleared')),
@@ -393,10 +615,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Text(
                       'Earned ₹${income.toStringAsFixed(0)}  •  Spent ₹${expense.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: isDark ? Colors.white60 : Colors.black54,
-                      ),
+                      style: TextStyle(fontSize: 16, color: isDark ? Colors.white60 : Colors.black54),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -413,15 +632,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         hintText: 'Search category, note, amount...',
                         prefixIcon: const Icon(Icons.search),
                         suffixIcon: searchQuery.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () => setState(() => searchQuery = ''),
-                              )
+                            ? IconButton(icon: const Icon(Icons.clear), onPressed: () => setState(() => searchQuery = ''))
                             : null,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                         filled: true,
                         fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
                         contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
@@ -445,10 +658,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ...List.generate(12, (i) {
                             final d = DateTime.now().subtract(Duration(days: 30 * i));
                             final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
-                            return DropdownMenuItem(
-                              value: key,
-                              child: Text(DateFormat('MMMM yyyy').format(d)),
-                            );
+                            return DropdownMenuItem(value: key, child: Text(DateFormat('MMMM yyyy').format(d)));
                           }),
                         ],
                         onChanged: (v) => setState(() => selectedMonth = v),
@@ -463,27 +673,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              Icons.wallet_outlined,
-                              size: 96,
-                              color: isDark ? Colors.white24 : Colors.black26,
-                            ),
+                            Icon(Icons.wallet_outlined, size: 96, color: isDark ? Colors.white24 : Colors.black26),
                             const SizedBox(height: 32),
                             Text(
                               'No transactions yet',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white70 : Colors.black87,
-                              ),
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.black87),
                             ),
                             const SizedBox(height: 12),
                             Text(
                               'Tap the + button to add your first expense or income',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: isDark ? Colors.white54 : Colors.black54,
-                              ),
+                              style: TextStyle(fontSize: 16, color: isDark ? Colors.white54 : Colors.black54),
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -494,10 +693,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final item = filtered[index];
-                          final date = _safeParseDate(item['date'] as String?);
+                          final date = _safeParseDate(item['date']);
                           final isIncome = (item['type'] as String? ?? 'expense') == 'income';
-                          final category = item['category'] as String;
+                          final category = item['category'] as String? ?? 'Others';
                           final paymentMethod = item['paymentMethod'] as String? ?? 'Unknown';
+                          final amount = (item['amount'] as num?)?.toDouble() ?? 0.0;
 
                           final categoryIcon = categoryIcons[category] ?? Icons.more_horiz;
                           final categoryColor = categoryColors[category] ?? (isIncome ? Colors.green : Colors.red);
@@ -511,29 +711,18 @@ class _HomeScreenState extends State<HomeScreen> {
                               leading: CircleAvatar(
                                 radius: 30,
                                 backgroundColor: categoryColor.withOpacity(isDark ? 0.25 : 0.15),
-                                child: Icon(
-                                  categoryIcon,
-                                  color: categoryColor,
-                                  size: 24,
-                                ),
+                                child: Icon(categoryIcon, color: categoryColor, size: 24),
                               ),
                               title: Row(
                                 children: [
                                   Text(
                                     isIncome ? '+ ' : '- ',
-                                    style: TextStyle(
-                                      color: categoryColor,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                    style: TextStyle(color: categoryColor, fontSize: 24, fontWeight: FontWeight.bold),
                                   ),
                                   Expanded(
                                     child: Text(
-                                      '₹${(item['amount'] as double).toStringAsFixed(0)} • $category',
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                      '₹${amount.toStringAsFixed(0)} • $category',
+                                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                 ],
@@ -542,60 +731,59 @@ class _HomeScreenState extends State<HomeScreen> {
                                 padding: const EdgeInsets.only(top: 6),
                                 child: Row(
                                   children: [
-                                    Icon(
-                                      getPaymentIcon(paymentMethod),
-                                      size: 18,
-                                      color: isDark ? Colors.white60 : Colors.black54,
-                                    ),
+                                    Icon(getPaymentIcon(paymentMethod), size: 18, color: isDark ? Colors.white60 : Colors.black54),
                                     const SizedBox(width: 6),
                                     Text(
                                       '$paymentMethod • ${date != null ? DateFormat('dd/MM/yyyy').format(date) : 'Invalid date'}',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        color: isDark ? Colors.white60 : Colors.black54,
-                                      ),
+                                      style: TextStyle(fontSize: 15, color: isDark ? Colors.white60 : Colors.black54),
                                     ),
                                   ],
                                 ),
                               ),
                               trailing: PopupMenuButton<String>(
                                 icon: const Icon(Icons.more_vert),
-                                onSelected: (value) {
+                                onSelected: (value) async {
                                   if (value == 'edit') {
-                                    Navigator.push(
+                                    final updatedItem = await Navigator.push<Map<String, dynamic>>(
                                       context,
-                                      MaterialPageRoute(
-                                        builder: (_) => AddExpenseScreen(
-                                          initialItem: item,
-                                          index: transactions.indexOf(item),
-                                        ),
-                                      ),
-                                    ).then((_) => setState(() {}));
+                                      MaterialPageRoute(builder: (_) => AddExpenseScreen(initialItem: item)),
+                                    );
+
+                                    if (updatedItem != null) {
+                                      final id = item['id'] as String?;
+                                      if (id != null) {
+                                        await _updateTransaction(id, updatedItem);
+                                        await _loadTransactions();
+                                      }
+                                    }
                                   } else if (value == 'delete') {
-                                    _deleteTransaction(transactions.indexOf(item));
+                                    final id = item['id'] as String?;
+                                    if (id != null) {
+                                      final deletedItem = Map<String, dynamic>.from(item);
+
+                                      await _deleteTransaction(id);
+
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: const Text('Transaction deleted'),
+                                          action: SnackBarAction(
+                                            label: 'UNDO',
+                                            onPressed: () async {
+                                              await _saveTransaction(deletedItem);
+                                              await _loadTransactions();
+                                            },
+                                          ),
+                                          duration: const Duration(seconds: 4),
+                                        ),
+                                      );
+
+                                      await _loadTransactions();
+                                    }
                                   }
                                 },
                                 itemBuilder: (context) => [
-                                  PopupMenuItem(
-                                    value: 'edit',
-                                    child: Row(
-                                      children: const [
-                                        Icon(Icons.edit),
-                                        SizedBox(width: 8),
-                                        Text('Edit'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: Row(
-                                      children: const [
-                                        Icon(Icons.delete, color: Colors.red),
-                                        SizedBox(width: 8),
-                                        Text('Delete', style: TextStyle(color: Colors.red)),
-                                      ],
-                                    ),
-                                  ),
+                                  const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit), SizedBox(width: 8), Text('Edit')])),
+                                  const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))])),
                                 ],
                               ),
                             ),
@@ -638,7 +826,14 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AddExpenseScreen()),
-    ).then((_) => setState(() {}));
+    ).then((result) async {
+      if (result != null && result is Map<String, dynamic>) {
+        await _saveTransaction(result);
+        await Future.delayed(const Duration(milliseconds: 600)); // reliable refresh delay
+        await _loadTransactions();
+        setState(() {}); // force rebuild
+      }
+    });
   }
 
   Widget _buildSummary() {
@@ -663,15 +858,10 @@ class _HomeScreenState extends State<HomeScreen> {
         title: '${category}\n₹${amount.toStringAsFixed(0)}\n${percentage.toStringAsFixed(1)}%',
         color: color,
         radius: 80,
-        titleStyle: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
+        titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
       );
     }).toList();
 
-    // Bar Chart Data (last 6 months)
     final monthlyTrend = _getMonthlyTrendData();
 
     return SingleChildScrollView(
@@ -688,27 +878,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 32),
-
-          Text(
-            'Expense Breakdown by Category',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-          ),
+          Text('Expense Breakdown by Category', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87)),
           const SizedBox(height: 16),
-
-          // Pie Chart with Drill-Down
           SizedBox(
             height: 300,
             child: categoryBreakdown.isEmpty
-                ? Center(
-                    child: Text(
-                      'No expenses this period',
-                      style: TextStyle(fontSize: 16, color: isDark ? Colors.white54 : Colors.black54),
-                    ),
-                  )
+                ? Center(child: Text('No expenses this period', style: TextStyle(fontSize: 16, color: isDark ? Colors.white54 : Colors.black54)))
                 : PieChart(
                     PieChartData(
                       sections: pieSections,
@@ -729,18 +904,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
           ),
           const SizedBox(height: 32),
-
-          // Legend
-          Text(
-            'Legend',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-          ),
+          Text('Legend', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.black87)),
           const SizedBox(height: 12),
-
           ...categoryBreakdown.entries.map((entry) {
             final category = entry.key;
             final amount = entry.value;
@@ -750,40 +915,16 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
-                  Container(
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                  Container(width: 16, height: 16, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
                   const SizedBox(width: 12),
-                  Text(
-                    '$category — ₹${amount.toStringAsFixed(0)}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
-                  ),
+                  Text('$category — ₹${amount.toStringAsFixed(0)}', style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.black87)),
                 ],
               ),
             );
           }).toList(),
-
           const SizedBox(height: 40),
-
-          // Bar Chart
-          Text(
-            'Monthly Trend (Last 6 Months)',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-          ),
+          Text('Monthly Trend (Last 6 Months)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87)),
           const SizedBox(height: 16),
-
           SizedBox(
             height: 320,
             child: BarChart(
@@ -798,13 +939,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       showTitles: true,
                       getTitlesWidget: (value, meta) {
                         if (value.toInt() >= 0 && value.toInt() < monthlyTrend.length) {
-                          return Text(
-                            monthlyTrend[value.toInt()]['month'],
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          );
+                          return Text(monthlyTrend[value.toInt()]['month'], style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87));
                         }
                         return const Text('');
                       },
@@ -821,18 +956,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   return BarChartGroupData(
                     x: index,
                     barRods: [
-                      BarChartRodData(
-                        toY: data['income'] as double,
-                        color: Colors.green,
-                        width: 16,
-                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
-                      ),
-                      BarChartRodData(
-                        toY: data['expense'] as double,
-                        color: Colors.red,
-                        width: 16,
-                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
-                      ),
+                      BarChartRodData(toY: data['income'] as double, color: Colors.green, width: 16, borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4))),
+                      BarChartRodData(toY: data['expense'] as double, color: Colors.red, width: 16, borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4))),
                     ],
                   );
                 }).toList(),
@@ -851,26 +976,13 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: isDark ? Colors.grey[800] : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: isDark ? Colors.black26 : Colors.grey.withOpacity(0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: isDark ? Colors.black26 : Colors.grey.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Column(
         children: [
           Text(title, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.black54)),
           const SizedBox(height: 8),
-          Text(
-            '₹${value.toStringAsFixed(0)}',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
+          Text('₹${value.toStringAsFixed(0)}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );
