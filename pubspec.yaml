@@ -20,6 +20,9 @@ dependencies:
   firebase_core: ^3.6.0           # Required for all Firebase services
   firebase_auth: ^5.3.1           # For login / signup / auth state
   cloud_firestore: ^5.4.4         # For storing & syncing expenses in the cloud
+  file_picker: ^10.3.10
+  path_provider: ^2.1.5
+  permission_handler: ^12.0.1
 
 dev_dependencies:
   flutter_test:

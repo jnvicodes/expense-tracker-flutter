@@ -468,7 +468,9 @@ class _HomeScreenState extends State<HomeScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.75,
         minChildSize: 0.5,
@@ -478,8 +480,14 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              Text('$category Details', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              Text('Total: ₹${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, color: Colors.red, fontWeight: FontWeight.w600)),
+              Text(
+                '$category Details',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'Total: ₹${total.toStringAsFixed(0)}',
+                style: const TextStyle(fontSize: 18, color: Colors.red, fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 16),
               Expanded(
                 child: itemsInCategory.isEmpty
@@ -708,6 +716,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                              onLongPress: () async {  // Added long-press for edit (matches Phase 1 checklist)
+                                final updatedItem = await Navigator.push<Map<String, dynamic>>(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => AddExpenseScreen(initialItem: item)),
+                                );
+
+                                if (updatedItem != null) {
+                                  final id = item['id'] as String?;
+                                  if (id != null) {
+                                    await _updateTransaction(id, updatedItem);
+                                    await _loadTransactions();
+                                  }
+                                }
+                              },
                               leading: CircleAvatar(
                                 radius: 30,
                                 backgroundColor: categoryColor.withOpacity(isDark ? 0.25 : 0.15),
